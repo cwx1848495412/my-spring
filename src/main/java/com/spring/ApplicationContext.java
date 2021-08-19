@@ -1,7 +1,12 @@
 package com.spring;
 
+import com.spring.annotation.Autowired;
+import com.spring.annotation.Component;
+import com.spring.annotation.ComponentScan;
+import com.spring.annotation.Scope;
+
 import java.io.File;
-import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
 import java.net.URL;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,7 +53,20 @@ public class ApplicationContext {
      */
     private Object createBean(BeanDefinition beanDefinition) throws Exception {
         Class clazz = beanDefinition.getClazz();
-        return clazz.getDeclaredConstructor().newInstance();
+        Object instance = clazz.getDeclaredConstructor().newInstance();
+
+        // 依赖注入
+        for (Field declaredField : clazz.getDeclaredFields()) {
+            if (declaredField.isAnnotationPresent(Autowired.class)) {
+                Object bean = getBean(declaredField.getName());
+                // private 属性 需要设置反射可访问
+                declaredField.setAccessible(true);
+                declaredField.set(instance, bean);
+            }
+        }
+
+
+        return instance;
     }
 
     /**
