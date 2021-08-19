@@ -8,6 +8,8 @@ import com.spring.annotation.Scope;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.net.URL;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -25,6 +27,10 @@ public class ApplicationContext {
      */
     private ConcurrentHashMap<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
 
+    /**
+     * 处理器列表
+     */
+    private List<BeanPostProcessor> beanPostProcessorList = new LinkedList<>();
 
     public ApplicationContext(Class configClass) throws Exception {
         this.configClass = configClass;
@@ -38,7 +44,7 @@ public class ApplicationContext {
                 continue;
             }
             // 单例bean
-            Object bean = createBean(beanDefinition);
+            Object bean = createBean(beanName, beanDefinition);
             singletonMap.put(beanName, bean);
         }
 
@@ -51,7 +57,7 @@ public class ApplicationContext {
      * @param beanDefinition
      * @return
      */
-    private Object createBean(BeanDefinition beanDefinition) throws Exception {
+    private Object createBean(String beanName, BeanDefinition beanDefinition) throws Exception {
         Class clazz = beanDefinition.getClazz();
         Object instance = clazz.getDeclaredConstructor().newInstance();
 
@@ -65,6 +71,28 @@ public class ApplicationContext {
             }
         }
 
+        // Aware 回调
+        if (instance instanceof BeanNameAware) {
+            ((BeanNameAware) instance).setBeanName(beanName);
+        }
+
+        // 扩展机制
+        // BeanPostProcessor
+        // 初始化前
+        for (BeanPostProcessor beanPostProcessor : beanPostProcessorList) {
+            instance = beanPostProcessor.postProcessBeforeInitialization(instance, beanName);
+        }
+
+        // 初始化 回调
+        if (instance instanceof InitializingBean) {
+            ((InitializingBean) instance).afterPropertiesSet();
+        }
+
+        // 初始化后
+        for (BeanPostProcessor beanPostProcessor : beanPostProcessorList) {
+            instance = beanPostProcessor.postProcessAfterInitialization(instance, beanName);
+        }
+
 
         return instance;
     }
@@ -75,7 +103,7 @@ public class ApplicationContext {
      * @param configClass
      * @throws ClassNotFoundException
      */
-    private void scan(Class configClass) throws ClassNotFoundException {
+    private void scan(Class configClass) throws Exception {
         // 解析配置类
         ComponentScan componentScanAnnotation = (ComponentScan) configClass.getDeclaredAnnotation(ComponentScan.class);
         String path = componentScanAnnotation.value();
@@ -103,6 +131,14 @@ public class ApplicationContext {
 
                 Class<?> clazz = classLoader.loadClass(className);
                 if (clazz.isAnnotationPresent(Component.class)) {
+
+                    // 此处的处理器 没有使用getBean获取 方法的生命周期 此种形式不支持
+                    // 可优化整体逻辑以供支持
+                    if (BeanPostProcessor.class.isAssignableFrom(clazz)) {
+                        BeanPostProcessor instance = (BeanPostProcessor) clazz.getDeclaredConstructor().newInstance();
+                        beanPostProcessorList.add(instance);
+                    }
+
                     // 判断 当前类是单例bean 还是 原型bean
                     // beanDefinition
                     Component componentAnnotation = clazz.getDeclaredAnnotation(Component.class);
@@ -141,7 +177,7 @@ public class ApplicationContext {
             obj = singletonMap.get(beanName);
         } else {
             //创建bean
-            obj = createBean(beanDefinition);
+            obj = createBean(beanName, beanDefinition);
         }
 
         return obj;
